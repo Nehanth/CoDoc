@@ -23,40 +23,77 @@ type Detail = {
     transcript: { role: string; text: string }[];
     state: ClinicalState;
   }[];
-  tasks: { description: string; status: string; when?: string }[];
+  tasks: { id: string; description: string; status: string; when?: string }[];
 };
+
+type Slot = { id: string; start: string; end: string };
+
+function fmtSlot(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /** Task status → plain language for the patient. */
 const TASK_PLAIN: Record<string, string> = {
   draft: "Being prepared",
-  requested: "Sent — the specialist's office will contact you",
+  requested: "Sent — waiting for the specialist to accept",
   received: "Received by the specialist",
-  accepted: "Accepted — expect a call to schedule",
-  "in-progress": "In progress",
+  accepted: "Accepted — pick a time below",
+  "in-progress": "Appointment booked",
   completed: "Completed",
 };
 
 export default function Me() {
   const user = useUser(["patient"]);
   const [p, setP] = useState<Detail | null | undefined>(undefined);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [picking, setPicking] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    if (!user?.patientName) return;
+    try {
+      const list = await fetch("/api/patients").then((r) => r.json());
+      const mine = list.patients.find(
+        (x: { name: string }) =>
+          x.name.toLowerCase() === user.patientName!.toLowerCase(),
+      );
+      if (!mine) return setP(null);
+      const d = await fetch(`/api/patients/${mine.id}`).then((r) => r.json());
+      setP(d.patient);
+    } catch {
+      setP(null);
+    }
+  };
 
   useEffect(() => {
-    if (!user?.patientName) return;
-    (async () => {
-      try {
-        const list = await fetch("/api/patients").then((r) => r.json());
-        const mine = list.patients.find(
-          (x: { name: string }) =>
-            x.name.toLowerCase() === user.patientName!.toLowerCase(),
-        );
-        if (!mine) return setP(null);
-        const d = await fetch(`/api/patients/${mine.id}`).then((r) => r.json());
-        setP(d.patient);
-      } catch {
-        setP(null);
-      }
-    })();
+    void load();
+    fetch("/api/slots")
+      .then((r) => r.json())
+      .then((d) => setSlots(d.slots))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  const book = async (taskId: string, slotId: string) => {
+    setBusy(true);
+    const res = await fetch("/api/appointments/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId, slotId }),
+    });
+    if (res.ok) {
+      setSlots((ss) => ss.filter((s) => s.id !== slotId));
+      setPicking(null);
+      await load();
+    }
+    setBusy(false);
+  };
 
   if (!user) return null;
 
@@ -155,18 +192,45 @@ export default function Me() {
                   <span className="hint">what happens next</span>
                 </header>
                 <div className="stack">
-                  {p.tasks.map((t, i) => (
-                    <div key={i} className="refRow">
-                      <span
-                        className={`refDot ${
-                          t.status === "requested" ? "sent" : t.status === "accepted" || t.status === "completed" ? "ok" : "wait"
-                        }`}
-                      />
-                      <div className="refMain">
-                        <strong>{t.description}</strong>
-                        <p>{TASK_PLAIN[t.status] ?? t.status}</p>
+                  {p.tasks.map((t) => (
+                    <div key={t.id}>
+                      <div className="refRow">
+                        <span
+                          className={`refDot ${
+                            t.status === "requested" ? "sent" : t.status === "accepted" || t.status === "completed" ? "ok" : "wait"
+                          }`}
+                        />
+                        <div className="refMain">
+                          <strong>{t.description}</strong>
+                          <p>{TASK_PLAIN[t.status] ?? t.status}</p>
+                        </div>
+                        {t.when && <span className="pill">{t.when}</span>}
+                        {t.status === "accepted" && picking !== t.id && (
+                          <button
+                            className="confirm refAccept"
+                            onClick={() => setPicking(t.id)}
+                          >
+                            Book appointment
+                          </button>
+                        )}
                       </div>
-                      {t.when && <span className="pill">{t.when}</span>}
+                      {t.status === "accepted" && picking === t.id && (
+                        <div className="slotPick">
+                          <span className="lbl">Open slots — Orthopedics</span>
+                          <div className="slotGrid">
+                            {slots.slice(0, 9).map((sl) => (
+                              <button
+                                key={sl.id}
+                                className="slotBtn"
+                                disabled={busy}
+                                onClick={() => book(t.id, sl.id)}
+                              >
+                                {fmtSlot(sl.start)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

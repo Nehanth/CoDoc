@@ -14,7 +14,7 @@ const practitioner = await m.upsertResource(
   {
     resourceType: "Practitioner",
     identifier: [{ system: SYS, value: "dr-lee" }],
-    name: [{ prefix: ["Dr."], given: ["Jordan"], family: "Lee" }],
+    name: [{ given: ["Orthopedics"], family: "Specialist" }],
     qualification: [{ code: { text: "Orthopedics" } }],
   },
   `identifier=${SYS}|dr-lee`,
@@ -26,7 +26,7 @@ const schedule = await m.upsertResource(
     resourceType: "Schedule",
     identifier: [{ system: SYS, value: "schedule-dr-lee" }],
     active: true,
-    actor: [{ reference: `Practitioner/${practitioner.id}`, display: "Dr. Lee — Orthopedics" }],
+    actor: [{ reference: `Practitioner/${practitioner.id}`, display: "Orthopedics" }],
     comment: "Orthopedics clinic",
   },
   `identifier=${SYS}|schedule-dr-lee`,

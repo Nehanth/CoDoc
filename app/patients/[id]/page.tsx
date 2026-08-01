@@ -27,7 +27,7 @@ type Detail = {
     state: ClinicalState;
   }[];
   reports: { title: string; conclusion?: string; when?: string }[];
-  tasks: { description: string; status: string; when?: string }[];
+  tasks: { id: string; description: string; status: string; when?: string }[];
 };
 
 /** Task.status → what a human needs to know. */

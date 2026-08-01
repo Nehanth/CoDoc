@@ -529,7 +529,7 @@ export type PatientDetail = {
     state: ClinicalState;
   }[];
   reports: { title: string; conclusion?: string; when?: string }[];
-  tasks: { description: string; status: string; when?: string }[];
+  tasks: { id: string; description: string; status: string; when?: string }[];
 };
 
 function decodeAttachment(data?: string): string {
@@ -626,6 +626,7 @@ export async function patientDetail(id: string): Promise<PatientDetail | null> {
       when: r.issued?.slice(0, 16).replace("T", " "),
     })),
     tasks: tasks.map((t) => ({
+      id: t.id as string,
       description: t.description ?? "",
       status: t.status ?? "",
       when: t.meta?.lastUpdated?.slice(0, 16).replace("T", " "),

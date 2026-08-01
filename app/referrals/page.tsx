@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { logout, useUser } from "../lib/user";
 
-type Slot = { id: string; start: string; end: string };
-
 type Row = {
   taskId: string;
   description: string;
@@ -20,7 +18,7 @@ type Row = {
 const SPECIALIST_LABEL: Record<string, string> = {
   requested: "New referral — awaiting your review",
   received: "Received",
-  accepted: "Accepted — book the patient in",
+  accepted: "Accepted — the patient can now book a time",
   "in-progress": "Appointment scheduled",
   completed: "Completed",
 };
@@ -33,23 +31,10 @@ const PCP_LABEL: Record<string, string> = {
   completed: "Completed",
 };
 
-function fmtSlot(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 export default function Referrals() {
   const user = useUser(["specialist", "pcp"]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [picking, setPicking] = useState<string | null>(null);
-  const [booked, setBooked] = useState<Record<string, string>>({});
 
   const load = () =>
     fetch("/api/referrals")
@@ -59,30 +44,9 @@ export default function Referrals() {
 
   useEffect(() => {
     load();
-    fetch("/api/slots")
-      .then((r) => r.json())
-      .then((d) => setSlots(d.slots))
-      .catch(() => {});
     const t = setInterval(load, 10000); // the queue stays live
     return () => clearInterval(t);
   }, []);
-
-  const book = async (taskId: string, slotId: string) => {
-    setBusy(taskId);
-    const res = await fetch("/api/appointments/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, slotId }),
-    });
-    const data = await res.json();
-    if (data.start) {
-      setBooked((b) => ({ ...b, [taskId]: data.start }));
-      setSlots((ss) => ss.filter((s) => s.id !== slotId));
-      setPicking(null);
-    }
-    await load();
-    setBusy(null);
-  };
 
   const accept = async (taskId: string) => {
     setBusy(taskId);
@@ -173,13 +137,6 @@ export default function Referrals() {
                   </div>
                 )}
 
-                {booked[r.taskId] && (
-                  <p className="refStatus">
-                    <span className="refDot ok" />
-                    Booked · {fmtSlot(booked[r.taskId])}
-                  </p>
-                )}
-
                 {user.role === "specialist" && (
                   <div className="refActions">
                     {r.patient.phone && (
@@ -196,32 +153,6 @@ export default function Referrals() {
                         {busy === r.taskId ? "Accepting…" : "Accept referral"}
                       </button>
                     )}
-                    {r.status === "accepted" && picking !== r.taskId && (
-                      <button
-                        className="confirm refAccept"
-                        onClick={() => setPicking(r.taskId)}
-                      >
-                        Book appointment
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {user.role === "specialist" && picking === r.taskId && (
-                  <div className="slotPick">
-                    <span className="lbl">Open slots — Dr. Lee, Orthopedics</span>
-                    <div className="slotGrid">
-                      {slots.slice(0, 9).map((sl) => (
-                        <button
-                          key={sl.id}
-                          className="slotBtn"
-                          disabled={busy === r.taskId}
-                          onClick={() => book(r.taskId, sl.id)}
-                        >
-                          {fmtSlot(sl.start)}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 )}
               </div>
