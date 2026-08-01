@@ -556,7 +556,7 @@ export async function patientDetail(id: string): Promise<PatientDetail | null> {
       medplum.searchResources("DocumentReference", `subject=${pid}&_count=10&_sort=-_lastUpdated`),
       medplum.searchResources("DiagnosticReport", `subject=${pid}&_count=10&_sort=-_lastUpdated`),
       medplum.searchResources("Task", `patient=${pid}&_count=20&_sort=-_lastUpdated`),
-      medplum.searchResources("Appointment", `actor=${pid}&_count=20&_sort=start`),
+      medplum.searchResources("Appointment", `actor=${pid}&_count=20&_sort=date`),
     ]);
 
   const visits: PatientDetail["visits"] = [];
@@ -792,7 +792,7 @@ export async function patientAppointments(
   const medplum = await getClient();
   const appts = await medplum.searchResources(
     "Appointment",
-    `actor=Patient/${patientId}&_count=20&_sort=start`,
+    `actor=Patient/${patientId}&_count=20&_sort=date`,
   );
   return appts
     .filter((a) => a.status === "booked")
