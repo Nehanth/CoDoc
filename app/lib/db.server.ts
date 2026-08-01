@@ -15,7 +15,10 @@ export type Account = {
 
 function getDb(): DatabaseSync {
   if (db) return db;
-  db = new DatabaseSync(path.join(process.cwd(), "codoc.db"));
+  // Serverless filesystems are read-only outside /tmp; accounts there are
+  // per-instance and ephemeral — fine for demo auth.
+  const dir = process.env.VERCEL ? "/tmp" : process.cwd();
+  db = new DatabaseSync(path.join(dir, "codoc.db"));
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
