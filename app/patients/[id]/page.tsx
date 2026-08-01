@@ -18,6 +18,7 @@ type Detail = {
   medications: string[];
   allergies: { substance: string; note?: string }[];
   observations: { text: string; value?: string; when?: string; quote?: string }[];
+  appointments: { start: string; description?: string; practitioner?: string }[];
   notes: { date?: string; text: string }[];
   visits: {
     date?: string;
@@ -179,6 +180,33 @@ export default function PatientPage({
                 )}
               </div>
             </div>
+
+            {p.appointments.length > 0 && (
+              <section className="card detailHead">
+                <header>
+                  <h2>Appointments</h2>
+                </header>
+                <div className="stack">
+                  {p.appointments.map((a, i) => (
+                    <div key={i} className="refRow">
+                      <span className="refDot ok" />
+                      <div className="refMain">
+                        <strong>
+                          {new Date(a.start).toLocaleString(undefined, {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </strong>
+                        <p>{[a.practitioner, a.description].filter(Boolean).join(" · ")}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* ---- referrals & orders: the actions we took ---- */}
             {p.tasks.length > 0 && (

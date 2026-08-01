@@ -520,6 +520,7 @@ export type PatientDetail = {
   medications: string[];
   allergies: { substance: string; note?: string }[];
   observations: { text: string; value?: string; when?: string; quote?: string }[];
+  appointments: { start: string; description?: string; practitioner?: string }[];
   notes: { date?: string; text: string }[];
   visits: {
     date?: string;
@@ -546,7 +547,7 @@ export async function patientDetail(id: string): Promise<PatientDetail | null> {
   if (!patient) return null;
   const pid = `Patient/${id}`;
 
-  const [conditions, meds, allergies, observations, docs, reports, tasks] =
+  const [conditions, meds, allergies, observations, docs, reports, tasks, appointments] =
     await Promise.all([
       medplum.searchResources("Condition", `subject=${pid}&_count=30`),
       medplum.searchResources("MedicationStatement", `subject=${pid}&_count=30`),
@@ -555,6 +556,7 @@ export async function patientDetail(id: string): Promise<PatientDetail | null> {
       medplum.searchResources("DocumentReference", `subject=${pid}&_count=10&_sort=-_lastUpdated`),
       medplum.searchResources("DiagnosticReport", `subject=${pid}&_count=10&_sort=-_lastUpdated`),
       medplum.searchResources("Task", `patient=${pid}&_count=20&_sort=-_lastUpdated`),
+      medplum.searchResources("Appointment", `actor=${pid}&_count=20&_sort=start`),
     ]);
 
   const visits: PatientDetail["visits"] = [];
@@ -587,6 +589,15 @@ export async function patientDetail(id: string): Promise<PatientDetail | null> {
         .join(" ") || "(unnamed)",
     birthDate: patient.birthDate,
     gender: patient.gender,
+    appointments: appointments
+      .filter((a) => a.status === "booked")
+      .map((a) => ({
+        start: a.start as string,
+        description: a.description,
+        practitioner: a.participant?.find((x) =>
+          x.actor?.reference?.startsWith("Practitioner/"),
+        )?.actor?.display,
+      })),
     phone: patient.telecom?.find((t) => t.system === "phone")?.value,
     address: patient.address?.[0]?.text,
     pharmacy: patient.extension?.find(
@@ -707,4 +718,89 @@ export async function acceptedPatientIds(): Promise<Set<string>> {
     if (ref?.startsWith("Patient/")) ids.add(ref.split("/")[1]);
   }
   return ids;
+}
+
+/* ============ scheduling (Medplum Scheduling API) ============ */
+
+export type SlotRow = { id: string; start: string; end: string };
+
+export async function listFreeSlots(): Promise<SlotRow[]> {
+  const medplum = await getClient();
+  const slots = await medplum.searchResources(
+    "Slot",
+    "status=free&_count=50&_sort=start",
+  );
+  const now = Date.now();
+  return slots
+    .filter((s) => s.start && new Date(s.start).getTime() > now)
+    .map((s) => ({ id: s.id as string, start: s.start as string, end: s.end as string }));
+}
+
+/** Book a referral: Appointment created, Slot busied, Task moves to in-progress. */
+export async function bookAppointment(
+  taskId: string,
+  slotId: string,
+): Promise<{ start: string }> {
+  const medplum = await getClient();
+  const [task, slot] = await Promise.all([
+    medplum.readResource("Task", taskId),
+    medplum.readResource("Slot", slotId),
+  ]);
+  if (slot.status !== "free") throw new Error("Slot no longer available");
+
+  const patientRef = task.for?.reference;
+  const schedule = await medplum.readResource(
+    "Schedule",
+    (slot.schedule?.reference ?? "").split("/")[1],
+  );
+  const practitionerRef = schedule.actor?.[0];
+
+  const dispatchId = task.identifier?.find((i) => i.system === SYS)?.value ?? taskId;
+  await medplum.upsertResource(
+    {
+      resourceType: "Appointment",
+      identifier: [{ system: SYS, value: `${dispatchId}-appt` }],
+      status: "booked",
+      slot: [{ reference: `Slot/${slotId}` }],
+      start: slot.start,
+      end: slot.end,
+      description: task.description,
+      ...(task.focus?.reference?.startsWith("ServiceRequest/")
+        ? { basedOn: [{ reference: task.focus.reference }] }
+        : {}),
+      participant: [
+        ...(patientRef
+          ? [{ actor: { reference: patientRef }, status: "accepted" as const }]
+          : []),
+        ...(practitionerRef
+          ? [{ actor: practitionerRef, status: "accepted" as const }]
+          : []),
+      ],
+    },
+    `identifier=${SYS}|${dispatchId}-appt`,
+  );
+
+  await medplum.updateResource({ ...slot, status: "busy" });
+  await medplum.updateResource({ ...task, status: "in-progress" });
+  return { start: slot.start as string };
+}
+
+/** Appointments for a patient — surfaced on their record and referral rows. */
+export async function patientAppointments(
+  patientId: string,
+): Promise<{ start: string; description?: string; practitioner?: string }[]> {
+  const medplum = await getClient();
+  const appts = await medplum.searchResources(
+    "Appointment",
+    `actor=Patient/${patientId}&_count=20&_sort=start`,
+  );
+  return appts
+    .filter((a) => a.status === "booked")
+    .map((a) => ({
+      start: a.start as string,
+      description: a.description,
+      practitioner: a.participant?.find((p) =>
+        p.actor?.reference?.startsWith("Practitioner/"),
+      )?.actor?.display,
+    }));
 }
